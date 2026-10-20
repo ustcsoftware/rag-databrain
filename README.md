@@ -4,16 +4,22 @@
 
 ## 跑起来
 
-本机用 `py` 启动器（Python 3.13）。
-
 ```powershell
 cd "d:\personal code\rag-databrain"
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e .
+copy .env.example .env
+# 填 OPENAI_API_KEY；国内中转再填 OPENAI_BASE_URL
 uvicorn rag_databrain.main:app --reload
 ```
 
-- `GET /health` → `{"ok": true}`
-- `POST /ask` `{"question":"你好"}` → stub 回答（尚未接模型 / 向量库）
-- OpenAPI：http://127.0.0.1:8000/docs
+1. `POST /ingest` 上传 `.txt` / `.md` / `.pdf`
+2. `POST /ask` `{"question":"..."}` → `{answer, sources}`
+
+```powershell
+curl.exe -F "file=@readme.md" http://127.0.0.1:8000/ingest
+curl.exe -H "Content-Type: application/json" -d "{\"question\":\"这个项目是做什么的\"}" http://127.0.0.1:8000/ask
+```
+
+OpenAPI：http://127.0.0.1:8000/docs
