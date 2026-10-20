@@ -3,7 +3,8 @@ from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from rag_databrain.store import openai_client, retrieve
+from rag_databrain.embedder import openai_client
+from rag_databrain.store import retrieve
 
 
 class AgentState(TypedDict):
