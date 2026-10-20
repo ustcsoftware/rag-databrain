@@ -1,4 +1,3 @@
-import json
 import os
 from io import BytesIO
 from pathlib import Path
@@ -6,8 +5,7 @@ from pathlib import Path
 from openai import OpenAI
 from pypdf import PdfReader
 
-ROOT = Path(__file__).resolve().parents[2]
-KB_PATH = ROOT / "data" / "kb.jsonl"
+from rag_databrain.storage import load_chunks, replace_document
 
 
 def openai_client() -> OpenAI:
@@ -65,16 +63,14 @@ def ingest(source: str, text: str) -> int:
 
     embs = embed(chunks)
 
-    rows = _load()
-    rows = [r for r in rows if r["source"] != source]
-    for i, (chunk, vec) in enumerate(zip(chunks, embs)):
-        rows.append({"id": f"{source}:{i}", "source": source, "text": chunk, "embedding": vec})
-    _save(rows)
-    return len(chunks)
+    return replace_document(
+        source,
+        [{"text": c, "embedding": e} for c, e in zip(chunks, embs)],
+    )
 
 
 def retrieve(question: str, k: int = 4) -> list[dict]:
-    rows = _load()
+    rows = load_chunks()
     if not rows:
         return []
 
@@ -89,21 +85,3 @@ def _cosine(a: list[float], b: list[float]) -> float:
     if den == 0:
         return 0.0
     return sum(x * y for x, y in zip(a, b)) / den
-
-
-def _load() -> list[dict]:
-    if not KB_PATH.exists():
-        return []
-    rows = []
-    for line in KB_PATH.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            rows.append(json.loads(line))
-    return rows
-
-
-def _save(rows: list[dict]) -> None:
-    KB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    KB_PATH.write_text(
-        "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows),
-        encoding="utf-8",
-    )

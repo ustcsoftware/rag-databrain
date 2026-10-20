@@ -4,7 +4,7 @@
 
 ## 一句话
 
-FastAPI 对外，LangGraph 编排（检索 → 生成）。文档切分后写入 `data/kb.jsonl`，用 OpenAI 兼容接口做 embedding 和回答。
+FastAPI 对外，LangGraph 编排（检索 → 生成）。文档和切片写入 `data/kb.sqlite`，用 OpenAI 兼容接口做 embedding 和回答。
 
 ## 已定
 
@@ -14,7 +14,8 @@ FastAPI 对外，LangGraph 编排（检索 → 生成）。文档切分后写入
 | 2026-10-20 | API | FastAPI | async + OpenAPI | Flask / Django |
 | 2026-10-20 | Agent | LangGraph | 有状态图，后续 HITL | CrewAI / 纯 LCEL |
 | 2026-10-20 | 布局 | `src/rag_databrain` + `pyproject.toml` | 最小可安装包 | 空目录分层 |
-| 2026-10-20 | 向量 | jsonl + 余弦扫描 | 最基础 RAG，零额外向量库 | 现在不上 Chroma |
+| 2026-10-20 | 存储 | SQLite `documents` + `chunks` | 标准库，同名覆盖；换 Postgres 只改本层 | jsonl |
+| 2026-10-20 | 检索 | 全表余弦扫描 | chunk 少时够用 | 现在不上 Chroma |
 | 2026-10-20 | 解析 | pypdf + 500 字切分、80 字重叠 | 够 txt/md/pdf | LlamaIndex |
 | 2026-10-20 | LLM / embedding | OpenAI 兼容 `base_url` | 换中转/Azure/vLLM 只改环境变量 | 绑定某一家 SDK |
 
@@ -29,6 +30,6 @@ FastAPI 对外，LangGraph 编排（检索 → 生成）。文档切分后写入
 
 ## 请求路径
 
-`POST /ingest` 切分 + embedding 写入 `data/kb.jsonl`。
+`POST /ingest` 切分 + embedding 写入 `data/kb.sqlite`。
 
 `POST /ask` → FastAPI → LangGraph（retrieve → generate）→ embedding 检索 + chat。
