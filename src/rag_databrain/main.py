@@ -5,7 +5,8 @@ from pydantic import BaseModel
 load_dotenv()
 
 from rag_databrain.graph import graph
-from rag_databrain.store import ingest, read_file
+from rag_databrain.parse import read_file
+from rag_databrain.store import ingest
 
 app = FastAPI(title="rag-databrain")
 
@@ -38,9 +39,6 @@ def ingest_file(file: UploadFile):
         text = read_file(name, raw)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
-
-    if not text.strip():
-        raise HTTPException(400, "没有可提取的文本")
 
     try:
         n = ingest(name, text)

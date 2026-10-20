@@ -1,40 +1,10 @@
-from io import BytesIO
-from pathlib import Path
-
-from pypdf import PdfReader
-
 from rag_databrain.embedder import embed_texts
+from rag_databrain.parse import chunk_text
 from rag_databrain.storage import load_chunks, replace_document
 
 
-def chunk_text(text: str, size: int = 500, overlap: int = 80) -> list[str]:
-    text = " ".join(text.split())
-    if not text:
-        return []
-    chunks = []
-    i = 0
-    while i < len(text):
-        chunks.append(text[i : i + size])
-        i += size - overlap
-    return chunks
-
-
-def read_file(name: str, raw: bytes) -> str:
-    suffix = Path(name).suffix.lower()
-    if suffix == ".pdf":
-        pages = PdfReader(BytesIO(raw)).pages
-        return "\n".join((p.extract_text() or "") for p in pages)
-    if suffix in {".txt", ".md"}:
-        for enc in ("utf-8", "gbk"):
-            try:
-                return raw.decode(enc)
-            except UnicodeDecodeError:
-                continue
-        raise ValueError("文本编码无法识别")
-    raise ValueError("只支持 .txt .md .pdf")
-
-
 def ingest(source: str, text: str) -> int:
+    # 流水线只串三层，解析/向量/落库都不在本函数里实现。
     chunks = chunk_text(text)
     if not chunks:
         return 0
@@ -48,6 +18,7 @@ def ingest(source: str, text: str) -> int:
 
 
 def retrieve(question: str, k: int = 4) -> list[dict]:
+    # 空库直接返回，避免为「没有文档」再打一次 embedding。
     rows = load_chunks()
     if not rows:
         return []
