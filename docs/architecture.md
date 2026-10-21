@@ -4,7 +4,7 @@
 
 ## 一句话
 
-FastAPI 对外，LangGraph 编排（检索 → 生成）。文档和切片写入 `data/kb.sqlite`，用 OpenAI 兼容接口做 embedding 和回答。
+FastAPI 对外，LangGraph 编排。检索是工具，模型循环调用直到作答或达到步数上限。文档写入 `data/kb.sqlite`，模型和向量走 OpenAI 兼容接口。
 
 ## 已定
 
@@ -20,7 +20,8 @@ FastAPI 对外，LangGraph 编排（检索 → 生成）。文档和切片写入
 | 2026-10-20 | LLM / embedding | OpenAI 兼容 `base_url` | 换中转/Azure/vLLM 只改环境变量 | 绑定某一家 SDK |
 | 2026-10-21 | 流式 | `POST /ask/stream` SSE，token 来自 OpenAI `stream=True` | `graph.invoke` 等整节点，出不了 token | LangGraph `astream_events`（本仓库 generate 不是 LC 模型） |
 | 2026-10-21 | 上下文 | 检索多捞、按 `MAX_CONTEXT_CHARS` 从高相关往里装 | 中转窗口常小于 128k，不能把切片全塞进去 | tiktoken 按模型精确数 token |
-| 2026-10-21 | 工作记忆 | 请求带 history：滑动窗口 + 预算上限 + 检索前改写 | 单轮问答接不上「它 / 再详细点」 | 服务端会话表、长期记忆、对话摘要 |
+| 2026-10-21 | 工作记忆 | 请求带 history：滑动窗口 + 预算上限 | 单轮问答接不上「它 / 再详细点」 | 服务端会话表、长期记忆、对话摘要 |
+| 2026-10-21 | 循环 | `retrieve` 当工具，模型决定再搜或作答；最后一轮禁止工具 | 直线检索→生成不是 Agent | LangGraph 条件边拆节点（和 stream 重复） |
 
 ## 后置
 
@@ -35,6 +36,6 @@ FastAPI 对外，LangGraph 编排（检索 → 生成）。文档和切片写入
 
 `POST /ingest` 切分 + embedding 写入 `data/kb.sqlite`。
 
-`POST /ask` → 可选 history → 改写成独立问题再检索 → 对话和资料分窗口 → 生成。
+`POST /ask` → 可选 history → 模型循环调 retrieve（有上限）→ 最后一轮作答。
 
 `POST /ask/stream` → 同一套检索和 prompt → OpenAI `stream=True` → SSE（`sources` / `delta` / `done` / `error`）。浏览器 EventSource 只能 GET，前端用 `fetch`。

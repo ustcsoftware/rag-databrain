@@ -104,7 +104,7 @@ def ask(body: AskIn):
 
 @app.post("/ask/stream")
 def ask_stream(body: AskIn):
-    # 先把检索（或打开 chat stream）跑完再写 SSE 头：缺 key 仍是 503，和 /ask 一致。
+    # 先把工具循环跑完再写 SSE 头：缺 key 仍是 503；token 只出最后一轮。
     gen = stream_ask(body.question, [t.model_dump() for t in body.history])
     try:
         first = next(gen)
