@@ -8,6 +8,8 @@ from rag_databrain.store import retrieve
 
 _SYSTEM = "根据资料回答。资料没有的就说不知道，不要编。"
 _EMPTY = "知识库为空，或没有相关内容。"
+# 多捞几条，真正进模型的由窗口裁；4 条 500 字几乎从不触顶。
+_RETRIEVE_K = 8
 
 
 class AgentState(TypedDict):
@@ -17,11 +19,34 @@ class AgentState(TypedDict):
     answer: str
 
 
+def _fit_context(chunks: list[str], question: str) -> list[str]:
+    # 按相关度从前往后装；超窗截最后一条。ponytail: 按字符估，要对齐某家 tokenizer 再上 tiktoken。
+    budget = int(os.environ.get("MAX_CONTEXT_CHARS", "8000"))
+    budget -= len(_SYSTEM) + len(question) + 20
+    if budget <= 0:
+        return chunks[:1] if chunks else []
+
+    out: list[str] = []
+    used = 0
+    for c in chunks:
+        gap = 2 if out else 0
+        room = budget - used - gap
+        if room <= 0:
+            break
+        if len(c) <= room:
+            out.append(c)
+            used += gap + len(c)
+            continue
+        out.append(c[:room])
+        break
+    return out
+
+
 def _hits(question: str) -> tuple[list[str], list[str]]:
     # /ask 和 /ask/stream 共用这一次检索，避免 handler 再抄一遍。
-    rows = retrieve(question)
-    chunks = [h["text"] for h in rows]
-    sources = list(dict.fromkeys(h["source"] for h in rows))
+    rows = retrieve(question, k=_RETRIEVE_K)
+    chunks = _fit_context([h["text"] for h in rows], question)
+    sources = list(dict.fromkeys(h["source"] for h in rows[: len(chunks)]))
     return chunks, sources
 
 
