@@ -13,6 +13,7 @@
 - 已经开始 SSE 之后失败发 `{"type":"error"}`，不要指望再改 HTTP 状态码。
 - `/ask` 和 `/ask/stream` 共用同一套 prompt（`graph._messages`），不要两边各写一份。
 - 进模型的资料按 `MAX_CONTEXT_CHARS` 从高相关切片往里装，超窗丢掉后面的；不要把检索到的全部原文硬塞。
+- 工作记忆只走请求里的 `history`（user/assistant）。最近 N 轮、最多占窗口 30%；有历史时改写后再检索，生成仍用原句。不要把聊天记录写进知识库表。
 - 换模型只改 `.env`，不要为中转再包 SDK。存储只经过 `store.py` / `storage.py`。
 
 活文档：`docs/architecture.md`。SSE 注意点：`d:\personal code\knowledge-docs\workflow\rag-databrain-流式输出SSE.md`。

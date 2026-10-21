@@ -3,7 +3,7 @@ import json
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 load_dotenv()
 
@@ -23,8 +23,22 @@ _SSE_HEADERS = {
 }
 
 
+class HistoryTurn(BaseModel):
+    role: str
+    content: str
+
+    @field_validator("role")
+    @classmethod
+    def role_ok(cls, v: str) -> str:
+        # 不让客户端注入 system，工作记忆只认对话双方。
+        if v not in ("user", "assistant"):
+            raise ValueError("history.role 只允许 user 或 assistant")
+        return v
+
+
 class AskIn(BaseModel):
     question: str
+    history: list[HistoryTurn] = Field(default_factory=list)
 
 
 class AskOut(BaseModel):
@@ -74,7 +88,13 @@ def ingest_file(file: UploadFile):
 def ask(body: AskIn):
     try:
         result = graph.invoke(
-            {"question": body.question, "chunks": [], "sources": [], "answer": ""}
+            {
+                "question": body.question,
+                "history": [t.model_dump() for t in body.history],
+                "chunks": [],
+                "sources": [],
+                "answer": "",
+            }
         )
     except RuntimeError as e:
         raise HTTPException(503, str(e)) from e
@@ -85,7 +105,7 @@ def ask(body: AskIn):
 @app.post("/ask/stream")
 def ask_stream(body: AskIn):
     # 先把检索（或打开 chat stream）跑完再写 SSE 头：缺 key 仍是 503，和 /ask 一致。
-    gen = stream_ask(body.question)
+    gen = stream_ask(body.question, [t.model_dump() for t in body.history])
     try:
         first = next(gen)
     except RuntimeError as e:

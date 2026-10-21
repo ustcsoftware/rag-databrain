@@ -15,7 +15,7 @@ uvicorn rag_databrain.main:app --reload
 ```
 
 1. `POST /ingest` 上传 `.txt` / `.md` / `.pdf`
-2. `POST /ask` `{"question":"..."}` → `{answer, sources}`
+2. `POST /ask` `{"question":"...","history":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]}` → `{answer, sources}`（`history` 可省略）
 3. `POST /ask/stream` 同一提问，SSE 按 token 推（`curl -N` 关缓冲）
 
 ```powershell
