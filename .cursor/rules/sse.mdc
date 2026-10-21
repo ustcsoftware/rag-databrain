@@ -1,0 +1,15 @@
+---
+description: rag-databrain 的 SSE 流式问答约定，改 /ask/stream 或 token 产出时用
+globs: src/rag_databrain/{main,graph}.py
+alwaysApply: false
+---
+
+# SSE
+
+- 流式入口只有 `POST /ask/stream`。`/ask` 保持一次性 JSON。
+- token 从 `stream_ask()` 出，禁止 `graph.invoke` / `graph.stream()` 冒充流式（那些是节点级，不是 token）。
+- 事件：`sources` → 若干 `delta` → `done`；中途失败 `error`。`data: {json}\n\n`，`ensure_ascii=False`。
+- 写响应头前先 `next(stream_ask(...))`：缺 key / 检索失败仍 HTTP 503。头发出后只能 SSE `error`。
+- 必须带 `Cache-Control: no-cache` 和 `X-Accel-Buffering: no`。
+- 空 `chunk.choices` 跳过，不要 `choices[0]`。
+- 客户端用 `fetch`，不要教 `EventSource`（只支持 GET）。

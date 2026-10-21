@@ -16,10 +16,12 @@ uvicorn rag_databrain.main:app --reload
 
 1. `POST /ingest` 上传 `.txt` / `.md` / `.pdf`
 2. `POST /ask` `{"question":"..."}` → `{answer, sources}`
+3. `POST /ask/stream` 同一提问，SSE 按 token 推（`curl -N` 关缓冲）
 
 ```powershell
 curl.exe -F "file=@readme.md" http://127.0.0.1:8000/ingest
 curl.exe -H "Content-Type: application/json" -d "{\"question\":\"这个项目是做什么的\"}" http://127.0.0.1:8000/ask
+curl.exe -N -H "Content-Type: application/json" -d "{\"question\":\"这个项目是做什么的\"}" http://127.0.0.1:8000/ask/stream
 ```
 
 OpenAPI：http://127.0.0.1:8000/docs

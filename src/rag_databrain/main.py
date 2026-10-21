@@ -1,16 +1,26 @@
+import json
+
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 load_dotenv()
 
-from rag_databrain.graph import graph
+from rag_databrain.graph import graph, stream_ask
 from rag_databrain.parse import read_file
 from rag_databrain.store import ingest
 
 app = FastAPI(title="rag-databrain")
 
 MAX_UPLOAD = 10 * 1024 * 1024
+
+# 关掉反向代理缓冲，否则 token 会攒成一整段才到浏览器。
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
 
 
 class AskIn(BaseModel):
@@ -20,6 +30,18 @@ class AskIn(BaseModel):
 class AskOut(BaseModel):
     answer: str
     sources: list[str]
+
+
+def _sse(payload: dict) -> str:
+    # json.dumps 会把正文里的换行转义掉，SSE 一帧不会被拆行。
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _sse_item(kind: str, payload: object) -> str:
+    # graph 只产语义事件，SSE 帧格式留在 handler。
+    if kind == "sources":
+        return _sse({"type": "sources", "sources": payload})
+    return _sse({"type": "delta", "text": payload})
 
 
 @app.get("/health")
@@ -58,3 +80,29 @@ def ask(body: AskIn):
         raise HTTPException(503, str(e)) from e
 
     return AskOut(answer=result["answer"], sources=result["sources"])
+
+
+@app.post("/ask/stream")
+def ask_stream(body: AskIn):
+    # 先把检索（或打开 chat stream）跑完再写 SSE 头：缺 key 仍是 503，和 /ask 一致。
+    gen = stream_ask(body.question)
+    try:
+        first = next(gen)
+    except RuntimeError as e:
+        raise HTTPException(503, str(e)) from e
+
+    def events():
+        yield _sse_item(*first)
+        try:
+            for kind, payload in gen:
+                yield _sse_item(kind, payload)
+            yield _sse({"type": "done"})
+        except Exception as e:
+            # 头已经发出，只能用事件报错，改不了 HTTP 状态码。
+            yield _sse({"type": "error", "message": str(e)})
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )

@@ -18,6 +18,7 @@ FastAPI 对外，LangGraph 编排（检索 → 生成）。文档和切片写入
 | 2026-10-20 | 检索 | 全表余弦扫描 | chunk 少时够用 | 现在不上 Chroma |
 | 2026-10-20 | 解析 | pypdf + 500 字切分、80 字重叠 | 够 txt/md/pdf | LlamaIndex |
 | 2026-10-20 | LLM / embedding | OpenAI 兼容 `base_url` | 换中转/Azure/vLLM 只改环境变量 | 绑定某一家 SDK |
+| 2026-10-21 | 流式 | `POST /ask/stream` SSE，token 来自 OpenAI `stream=True` | `graph.invoke` 等整节点，出不了 token | LangGraph `astream_events`（本仓库 generate 不是 LC 模型） |
 
 ## 后置
 
@@ -33,3 +34,5 @@ FastAPI 对外，LangGraph 编排（检索 → 生成）。文档和切片写入
 `POST /ingest` 切分 + embedding 写入 `data/kb.sqlite`。
 
 `POST /ask` → FastAPI → LangGraph（retrieve → generate）→ embedding 检索 + chat。
+
+`POST /ask/stream` → 同一套检索和 prompt → OpenAI `stream=True` → SSE（`sources` / `delta` / `done` / `error`）。浏览器 EventSource 只能 GET，前端用 `fetch`。
