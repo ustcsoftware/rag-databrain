@@ -2,8 +2,8 @@
 name: commit-message
 description: >-
   Writes Chinese Conventional Commits messages for this repo. Use when the user
-  asks for a commit message、写一下 message、commit message、提交说明, or after a change
-  they want to commit.
+  asks for a commit message、写一下 message、commit message、提交说明, after a change
+  they want to commit, or when a code change in this repo has just been written.
 ---
 
 # Commit Message

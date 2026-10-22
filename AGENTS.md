@@ -15,6 +15,7 @@
 - 进模型的资料按 `MAX_CONTEXT_CHARS` 从高相关切片往里装，超窗丢掉后面的；不要把检索到的全部原文硬塞。
 - 工作记忆只走请求里的 `history`（user/assistant）。最近 N 轮、最多占窗口 30%。不要把聊天记录写进知识库表。
 - Agent 循环在 `stream_ask`：模型调 `retrieve`，最后一轮禁止工具。不要退回「检索一次就生成」。相同 query 不重复搜。
+- 用户问题先消歧：能补成唯一问句就改写，第一次 `retrieve` 用这句，生成仍用原话；几种读法会搜到不同资料就只反问一个缺口，本轮不检索。消歧结果解析失败就走原来的循环。不要上多查询或 HyDE。
 - 换模型只改 `.env`，不要为中转再包 SDK。存储只经过 `store.py` / `storage.py`。
 
 活文档：`docs/architecture.md`。SSE 注意点：`d:\personal code\knowledge-docs\workflow\rag-databrain-流式输出SSE.md`。

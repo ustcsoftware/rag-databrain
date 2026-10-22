@@ -22,6 +22,7 @@ FastAPI 对外，LangGraph 编排。检索是工具，模型循环调用直到�
 | 2026-10-21 | 上下文 | 检索多捞、按 `MAX_CONTEXT_CHARS` 从高相关往里装 | 中转窗口常小于 128k，不能把切片全塞进去 | tiktoken 按模型精确数 token |
 | 2026-10-21 | 工作记忆 | 请求带 history：滑动窗口 + 预算上限 | 单轮问答接不上「它 / 再详细点」 | 服务端会话表、长期记忆、对话摘要 |
 | 2026-10-21 | 循环 | `retrieve` 当工具，模型决定再搜或作答；最后一轮禁止工具 | 直线检索→生成不是 Agent | LangGraph 条件边拆节点（和 stream 重复） |
+| 2026-10-22 | 消歧 | 检索前一次判断：改写后的问句去检索，或只反问一个缺口 | 真歧义时猜一个意思会答错；生成仍用原话 | 多查询、HyDE、缺槽位表 |
 
 ## 后置
 
@@ -36,6 +37,6 @@ FastAPI 对外，LangGraph 编排。检索是工具，模型循环调用直到�
 
 `POST /ingest` 切分 + embedding 写入 `data/kb.sqlite`。
 
-`POST /ask` → 可选 history → 模型循环调 retrieve（有上限）→ 最后一轮作答。
+`POST /ask` → 可选 history → 改写或反问 → 反问则本轮结束；否则模型循环调 retrieve（第一次用改写问句，有上限）→ 最后一轮作答。
 
 `POST /ask/stream` → 同一套检索和 prompt → OpenAI `stream=True` → SSE（`sources` / `delta` / `done` / `error`）。浏览器 EventSource 只能 GET，前端用 `fetch`。

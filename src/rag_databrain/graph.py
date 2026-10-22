@@ -12,6 +12,15 @@ _SYSTEM = (
     "资料不够可以再检索。资料没有的就说不知道，不要编。"
     "确定作答时直接输出，不要调工具。"
 )
+# 检索前单独判断。真歧义如果交给循环，模型会猜一个意思直接去搜。
+_ROUTE = (
+    "你只判断这一轮怎么处理，不回答问题。只输出 JSON。"
+    "能从对话补成唯一问句，或问句已经完整："
+    '{"action":"search","query":"不看历史也能检索的完整问句"}。'
+    "几种读法会搜到不同资料，对话也补不出唯一含义："
+    '{"action":"clarify","question":"只问一个缺口"}。'
+    "不要替用户选定。问候、致谢、与知识库无关时 action 用 search，query 用用户原话。"
+)
 _EMPTY = "知识库为空，或没有相关内容。"
 _RETRIEVE_K = 8
 _RETRIEVE_TOOL = {
@@ -133,6 +142,57 @@ def _asst_msg(msg) -> dict:
     return d
 
 
+def _parse_route(raw: str) -> tuple[str, str] | None:
+    # 中转偶尔包一层 markdown，或在 JSON 前后加一句。解析失败就当没判断过。
+    start, end = raw.find("{"), raw.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        data = json.loads(raw[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    action = data.get("action")
+    if action == "clarify":
+        question = data.get("question")
+        if isinstance(question, str) and question.strip():
+            return "clarify", question.strip()
+        return None
+    if action in ("search", "retrieve"):
+        query = data.get("query")
+        if isinstance(query, str) and query.strip():
+            return "search", query.strip()
+    return None
+
+
+def _route(client, question: str, history: list[dict]) -> tuple[str, str] | None:
+    resp = client.chat.completions.create(
+        model=_model(),
+        messages=[
+            {"role": "system", "content": _ROUTE},
+            *history,
+            {"role": "user", "content": question},
+        ],
+    )
+    content = resp.choices[0].message.content
+    if not isinstance(content, str):
+        return None
+    return _parse_route(content)
+
+
+def _system(pin: str | None) -> str:
+    if not pin:
+        return _SYSTEM
+    # query 当数据嵌进去，避免改写结果里的标点把指令截断。
+    return (
+        _SYSTEM
+        + "本轮第一次 retrieve 的 query 必须用这句，不要改成别的意思，也不要反问："
+        + json.dumps(pin, ensure_ascii=False)
+    )
+
+
 def _retrieve_obs(query: str, question: str, occupied: int) -> tuple[str, list[str]]:
     rows = retrieve(query, k=_RETRIEVE_K)
     chunks = _fit_context([h["text"] for h in rows], question, occupied=occupied)
@@ -143,17 +203,25 @@ def _retrieve_obs(query: str, question: str, occupied: int) -> tuple[str, list[s
 
 
 def stream_ask(question: str, history: list | None = None) -> Iterator[tuple[str, object]]:
-    # 工具循环先跑完再吐 token：最后一轮禁止 retrieve，避免死循环。
+    # 先消歧：真歧义只反问。否则进工具循环，第一次检索用改写问句。最后一轮禁止 retrieve。
     history = _working_memory(history or [], question)
+    client = openai_client()
+    routed = _route(client, question, history)
+    if routed is not None and routed[0] == "clarify":
+        yield "sources", []
+        yield "delta", routed[1]
+        return
+
+    pin = None if routed is None else routed[1]
+    system = _system(pin)
     messages: list[dict] = [
-        {"role": "system", "content": _SYSTEM},
+        {"role": "system", "content": system},
         *history,
         {"role": "user", "content": question},
     ]
     sources: list[str] = []
     seen: set[str] = set()
-    occupied = _turns_chars(history)
-    client = openai_client()
+    occupied = _turns_chars(history) + max(len(system) - len(_SYSTEM), 0)
     steps = _max_steps()
 
     for step in range(steps):
@@ -188,6 +256,13 @@ def stream_ask(question: str, history: list | None = None) -> Iterator[tuple[str
             return
 
         messages.append(_asst_msg(msg))
+        if pin:
+            for call in messages[-1].get("tool_calls") or []:
+                if call["function"]["name"] == "retrieve":
+                    call["function"]["arguments"] = json.dumps(
+                        {"query": pin}, ensure_ascii=False
+                    )
+                    break
         for tc in msg.tool_calls:
             if tc.function.name != "retrieve":
                 messages.append(
@@ -195,7 +270,11 @@ def stream_ask(question: str, history: list | None = None) -> Iterator[tuple[str
                 )
                 continue
 
-            query = _tool_query(tc, question)
+            if pin is not None:
+                query = pin
+                pin = None
+            else:
+                query = _tool_query(tc, question)
             if query in seen:
                 # 同一问句不打第二次 embedding。
                 obs = "该问句已检索过，请基于已有资料作答。"

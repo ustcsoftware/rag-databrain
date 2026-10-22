@@ -1,0 +1,12 @@
+---
+description: 本仓库每次写完代码后，同时给出可粘贴的 commit message
+alwaysApply: true
+---
+
+# 写完代码给 message
+
+改动落地后，同一条回复末尾按 `.cursor/skills/commit-message/SKILL.md` 给 message：一行 `<type>: <中文说明>`，句末句号。
+
+- 只给这一行，不要解释，不要用代码块包起来。
+- 没说「提交 / commit / 帮我提交」时，不要 `git add` 或 `git commit`。
+- 没改代码（只回答、只读）时不要写 message。
