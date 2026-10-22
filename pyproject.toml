@@ -11,6 +11,9 @@ dependencies = [
     "python-dotenv>=1.0",
     "openai>=1.40",
     "pypdf>=5.0",
+    "pypdfium2>=4.30",
+    "rapidocr>=3.0",
+    "onnxruntime>=1.19",
 ]
 
 [build-system]

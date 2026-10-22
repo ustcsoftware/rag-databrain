@@ -1,6 +1,6 @@
 # 架构选型
 
-活文档。改栈只改这里，并同步 `d:\personal code\knowledge-docs\workflow\rag-databrain-架构选型.md`。面试题见 [选型面试题.md](选型面试题.md)。
+活文档。改栈只改这里，并同步 `d:\personal code\knowledge-docs\workflow\rag-databrain-架构选型.md`。面试题见 [选型面试题.md](选型面试题.md)。切分见 [切分问题.md](切分问题.md)。
 
 ## 一句话
 
@@ -23,13 +23,14 @@ FastAPI 对外，LangGraph 编排。检索是工具，模型循环调用直到�
 | 2026-10-21 | 工作记忆 | 请求带 history：滑动窗口 + 预算上限 | 单轮问答接不上「它 / 再详细点」 | 服务端会话表、长期记忆、对话摘要 |
 | 2026-10-21 | 循环 | `retrieve` 当工具，模型决定再搜或作答；最后一轮禁止工具 | 直线检索→生成不是 Agent | LangGraph 条件边拆节点（和 stream 重复） |
 | 2026-10-22 | 消歧 | 检索前一次判断：改写后的问句去检索，或只反问一个缺口 | 真歧义时猜一个意思会答错；生成仍用原话 | 多查询、HyDE、缺槽位表 |
+| 2026-10-22 | 扫描件 | 文本层平均每页不足 40 字则渲染，RapidOCR | 图片页和扫描件没有可检索的字 | 本机 Tesseract（要另装中文语言包） |
 
 ## 后置
 
 | 层 | 倾向 | 触发条件 |
 |---|---|---|
 | 向量库 | Chroma → Qdrant（已有 Postgres 则 pgvector） | chunk 上万，或要 metadata 过滤 |
-| 解析 | LlamaIndex | PDF/表格开始砸人 |
+| 解析 | LlamaIndex | 双栏、表格、长乱码文本层开始砸人 |
 | 会话 / 元数据 | Postgres | 要落库的文档清单或对话历史 |
 | 鉴权 | FastAPI 依赖 | 第二个用户 |
 
