@@ -208,6 +208,7 @@ def _retrieve_obs(query: str, question: str, occupied: int) -> tuple[str, list[s
 
 def stream_ask(question: str, history: list | None = None) -> Iterator[tuple[str, object]]:
     # 先消歧：真歧义只反问。否则进工具循环，第一次检索用改写问句。最后一轮禁止 retrieve。
+    # 每个请求一份副本，用完即弃。多 worker 各有一块内存，进程内会话表会串话或丢话。
     history = _working_memory(history or [], question)
     client = openai_client()
     routed = _route(client, question, history)
@@ -313,7 +314,9 @@ def build_graph():
     g.add_node("agent", agent_node)
     g.add_edge(START, "agent")
     g.add_edge("agent", END)
-    return g.compile()
+    # 不挂 checkpointer。挂上之后所有请求会写进同一条记忆，除非每人都有自己的 thread_id，
+    # 而那份记忆还是停在这个进程里。
+    return g.compile(checkpointer=None)
 
 
 graph = build_graph()
