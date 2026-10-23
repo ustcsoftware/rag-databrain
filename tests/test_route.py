@@ -3,7 +3,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from rag_databrain.graph import _parse_route, stream_ask
+from rag_databrain.graph import _EMPTY, _parse_route, stream_ask
 
 
 class _Fn:
@@ -177,6 +177,37 @@ class StreamAskRouteTest(unittest.TestCase):
         self.assertEqual(seen, ["模型写的问句"])
         self.assertEqual(events[0][0], "sources")
         self.assertEqual(events[1], ("delta", "好"))
+
+    def test_direct_answer_without_retrieve_is_empty(self):
+        def retrieve(query, k=8):
+            raise AssertionError(query)
+
+        client, events = self._run(
+            [
+                _Msg('{"action":"search","query":"年假几天"}'),
+                _Msg("根据劳动法，年假五天"),
+            ],
+            steps=2,
+            retrieve=retrieve,
+        )
+        self.assertEqual(events, [("sources", []), ("delta", _EMPTY)])
+        self.assertFalse(any(c.get("stream") for c in client.chat.completions.calls))
+
+    def test_empty_retrieve_does_not_stream_model_guess(self):
+        def retrieve(query, k=8):
+            return []
+
+        client, events = self._run(
+            [
+                _Msg('{"action":"search","query":"年假几天"}'),
+                _Msg(tool_calls=[_ToolCall("retrieve", '{"query":"年假几天"}', "1")]),
+                ["法定年假五天"],
+            ],
+            steps=2,
+            retrieve=retrieve,
+        )
+        self.assertEqual(events, [("sources", []), ("delta", _EMPTY)])
+        self.assertFalse(any(c.get("stream") for c in client.chat.completions.calls))
 
 
 if __name__ == "__main__":

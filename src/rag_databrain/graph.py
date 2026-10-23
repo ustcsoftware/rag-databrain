@@ -8,8 +8,9 @@ from rag_databrain.embedder import openai_client
 from rag_databrain.store import retrieve
 
 _SYSTEM = (
-    "需要知识库时先调用 retrieve，query 写成独立完整问句。"
-    "资料不够可以再检索。资料没有的就说不知道，不要编。"
+    "只根据 retrieve 返回的资料作答。对话只用来理解指代，不能当资料。"
+    "需要资料时先 retrieve，query 写成独立完整问句。资料不够可以再检索。"
+    "资料没有的就说不知道，不要用自身知识补充规定、数字或日期。"
     "确定作答时直接输出，不要调工具。"
 )
 # 检索前单独判断。真歧义如果交给循环，模型会猜一个意思直接去搜。
@@ -231,6 +232,11 @@ def stream_ask(question: str, history: list | None = None) -> Iterator[tuple[str
             kwargs["tools"] = [_RETRIEVE_TOOL]
 
         if last:
+            if not sources:
+                # 没有检索证据就不要让模型用自身知识编一段。
+                yield "sources", []
+                yield "delta", _EMPTY
+                return
             stream = client.chat.completions.create(**kwargs, stream=True)
             try:
                 yield "sources", sources
@@ -252,7 +258,8 @@ def stream_ask(question: str, history: list | None = None) -> Iterator[tuple[str
         msg = resp.choices[0].message
         if not msg.tool_calls:
             yield "sources", sources
-            yield "delta", (msg.content or "").strip() or _EMPTY
+            text = (msg.content or "").strip()
+            yield "delta", text if sources else _EMPTY
             return
 
         messages.append(_asst_msg(msg))
