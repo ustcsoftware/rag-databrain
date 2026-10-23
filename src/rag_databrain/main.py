@@ -9,7 +9,7 @@ load_dotenv()
 
 from rag_databrain.graph import graph, stream_ask
 from rag_databrain.parse import parse_document
-from rag_databrain.store import ingest
+from rag_databrain.store import ingest, remove
 
 app = FastAPI(title="rag-databrain")
 
@@ -77,11 +77,18 @@ def ingest_file(file: UploadFile):
         raise HTTPException(400, str(e)) from e
 
     try:
-        n = ingest(name, blocks)
+        result = ingest(name, blocks)
     except RuntimeError as e:
         raise HTTPException(503, str(e)) from e
 
-    return {"source": name, "chunks": n}
+    return result
+
+
+@app.delete("/documents/{source}")
+def delete_file(source: str):
+    if not remove(source):
+        raise HTTPException(404, "文档不存在")
+    return {"source": source, "deleted": True}
 
 
 @app.post("/ask", response_model=AskOut)
