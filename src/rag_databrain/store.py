@@ -1,8 +1,10 @@
 import hashlib
+import os
 from typing import TypedDict
 
 from rag_databrain.embedder import embed_texts
 from rag_databrain.parse import chunk_blocks
+from rag_databrain.rank import retrieve_ranked
 from rag_databrain.storage import (
     delete_document,
     get_document,
@@ -56,15 +58,15 @@ def remove(source: str) -> bool:
     return delete_document(source)
 
 
-def retrieve(question: str, k: int = 4) -> list[dict]:
+def retrieve(question: str, k: int | None = None) -> list[dict]:
     # 空库直接返回，避免为「没有文档」再打一次 embedding。
     rows = load_chunks()
     if not rows:
         return []
-
+    if k is None:
+        k = int(os.environ.get("FINAL_K", "6"))
     q = embed_texts([question])[0]
-    ranked = sorted(rows, key=lambda r: _cosine(q, r["embedding"]), reverse=True)
-    return ranked[: min(k, len(ranked))]
+    return retrieve_ranked(question, rows, q, k)
 
 
 def _content_hash(texts: list[str]) -> str:
@@ -74,11 +76,3 @@ def _content_hash(texts: list[str]) -> str:
         h.update(len(raw).to_bytes(4, "big"))
         h.update(raw)
     return h.hexdigest()
-
-
-def _cosine(a: list[float], b: list[float]) -> float:
-    # ponytail: 全量扫描，chunk 上万或要过滤时换 Chroma / Qdrant
-    den = (sum(x * x for x in a) ** 0.5) * (sum(x * x for x in b) ** 0.5)
-    if den == 0:
-        return 0.0
-    return sum(x * y for x, y in zip(a, b)) / den

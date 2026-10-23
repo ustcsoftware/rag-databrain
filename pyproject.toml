@@ -17,6 +17,9 @@ dependencies = [
     "onnxruntime>=1.19",
 ]
 
+[project.optional-dependencies]
+rerank = ["sentence-transformers>=5.0"]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"

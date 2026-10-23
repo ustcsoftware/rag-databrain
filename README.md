@@ -25,3 +25,5 @@ curl.exe -N -H "Content-Type: application/json" -d "{\"question\":\"这个项目
 ```
 
 OpenAPI：http://127.0.0.1:8000/docs
+
+精排不在默认安装里。启用：`pip install -e ".[rerank]"`，`.env` 设 `RERANK_MODEL=BAAI/bge-reranker-v2-m3`（对照换 `Qwen/Qwen3-Reranker-0.6B`）。不设则停在关键词和向量的融合名次。

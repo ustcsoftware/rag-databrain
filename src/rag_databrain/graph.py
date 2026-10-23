@@ -23,7 +23,6 @@ _ROUTE = (
     "不要替用户选定。问候、致谢、与知识库无关时 action 用 search，query 用用户原话。"
 )
 _EMPTY = "知识库为空，或没有相关内容。"
-_RETRIEVE_K = 8
 _RETRIEVE_TOOL = {
     "type": "function",
     "function": {
@@ -52,6 +51,10 @@ def _window() -> int:
 
 def _model() -> str:
     return os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
+
+def _retrieve_k() -> int:
+    return max(int(os.environ.get("FINAL_K", "6")), 1)
 
 
 def _max_steps() -> int:
@@ -195,7 +198,7 @@ def _system(pin: str | None) -> str:
 
 
 def _retrieve_obs(query: str, question: str, occupied: int) -> tuple[str, list[str]]:
-    rows = retrieve(query, k=_RETRIEVE_K)
+    rows = retrieve(query, k=_retrieve_k())
     chunks = _fit_context([h["text"] for h in rows], question, occupied=occupied)
     sources = list(dict.fromkeys(h["source"] for h in rows[: len(chunks)]))
     if not chunks:
