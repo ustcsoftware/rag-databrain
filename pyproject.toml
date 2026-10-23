@@ -15,6 +15,7 @@ dependencies = [
     "pypdfium2>=4.30",
     "rapidocr>=3.0",
     "onnxruntime>=1.19",
+    "psycopg[binary]>=3.2",
 ]
 
 [project.optional-dependencies]

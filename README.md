@@ -9,8 +9,10 @@ cd "d:\personal code\rag-databrain"
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e .
+docker compose up -d
 copy .env.example .env
 # 填 OPENAI_API_KEY；国内中转再填 OPENAI_BASE_URL
+# DATABASE_URL 默认连本机 compose 里的 Postgres
 uvicorn rag_databrain.main:app --reload
 ```
 

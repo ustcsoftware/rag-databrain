@@ -1,6 +1,6 @@
 # rag-databrain
 
-企业 RAG：FastAPI + LangGraph。切片在 `data/kb.sqlite`，模型和向量走 OpenAI 兼容接口。检索是工具，有步数上限的循环。
+企业 RAG：FastAPI + LangGraph。切片在 PostgreSQL（`DATABASE_URL`），模型和向量走 OpenAI 兼容接口。检索是工具，有步数上限的循环。
 
 ## 跑
 

@@ -1,25 +1,38 @@
-import tempfile
+import os
 import unittest
-from pathlib import Path
 from unittest.mock import patch
+
+import psycopg
 
 from rag_databrain import storage
 from rag_databrain.store import ingest, remove
 from rag_databrain.storage import get_document, load_chunks
+
+_TEST_URL = "postgresql://rag:rag@127.0.0.1:5432/rag_test"
+_ADMIN_URL = "postgresql://rag:rag@127.0.0.1:5432/postgres"
 
 
 def _para(text: str) -> dict:
     return {"kind": "paragraph", "text": text, "page": None, "path": ""}
 
 
+def _ensure_test_db() -> None:
+    with psycopg.connect(_ADMIN_URL, autocommit=True) as conn:
+        got = conn.execute(
+            "SELECT 1 FROM pg_database WHERE datname = %s", ("rag_test",)
+        ).fetchone()
+        if got is None:
+            conn.execute("CREATE DATABASE rag_test")
+
+
 class IngestSyncTest(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False)
-        tmp.close()
-        self.path = Path(tmp.name)
+        _ensure_test_db()
+        self.env = patch.dict(os.environ, {"DATABASE_URL": _TEST_URL})
+        self.env.start()
         storage._chunks = None
-        self.db = patch.object(storage, "DB_PATH", self.path)
-        self.db.start()
+        with storage._connect() as conn:
+            conn.execute("TRUNCATE TABLE documents CASCADE")
         self.seen: list[list[str]] = []
 
         def fake_embed(texts):
@@ -31,9 +44,8 @@ class IngestSyncTest(unittest.TestCase):
 
     def tearDown(self):
         self.emb.stop()
-        self.db.stop()
+        self.env.stop()
         storage._chunks = None
-        self.path.unlink(missing_ok=True)
 
     def test_same_content_skips_embed(self):
         first = ingest("政策.md", [_para("年假五天")])
@@ -54,7 +66,9 @@ class IngestSyncTest(unittest.TestCase):
         self.assertEqual(out["version"], 2)
         self.assertEqual(out["embedded"], 1)
         self.assertEqual(self.seen, [["病假三天"]])
-        texts = [c["text"] for c in load_chunks()]
+        rows = load_chunks()
+        self.assertIsInstance(rows[0]["embedding"], list)
+        texts = [c["text"] for c in rows]
         self.assertTrue(any("年假五天" in t for t in texts))
         self.assertTrue(any("病假三天" in t for t in texts))
         self.assertFalse(any("病假两天" in t for t in texts))

@@ -4,7 +4,7 @@
 
 ## 一句话
 
-FastAPI 对外，LangGraph 编排。检索是工具，模型循环调用直到作答或达到步数上限。文档写入 `data/kb.sqlite`，模型和向量走 OpenAI 兼容接口。
+FastAPI 对外，LangGraph 编排。检索是工具，模型循环调用直到作答或达到步数上限。文档写入 PostgreSQL，模型和向量走 OpenAI 兼容接口。
 
 ## 已定
 
@@ -29,6 +29,7 @@ FastAPI 对外，LangGraph 编排。检索是工具，模型循环调用直到�
 | 2026-10-23 | 同步 | 文档哈希跳过、切片复用向量、整份替换删旧版 | 同名每次重嵌又贵又可能留下旧切片 | 任务队列做后台增量；改名追踪 |
 | 2026-10-23 | 检索 | 型号和错误码硬约束，BM25 + 余弦，RRF，可选 Cross-Encoder，同源封顶 | 向量近邻会把另一型号、另一个错误码排到前面 | 只取向量前几条；现在不上 OpenSearch / pgvector |
 | 2026-10-23 | 会话 | 请求内复制 history，图不挂 checkpointer | 进程内会话表在多 worker 下会串话或丢话 | 全局对话列表；所有人共用一个 thread_id |
+| 2026-10-23 | 存储 | PostgreSQL `documents` + `chunks` | 向量索引和 Agent 的 JSON 状态都长在 Postgres 上；MySQL 的向量类型晚，检查点也没有现成实现 | MySQL；继续用 SQLite 文件 |
 
 ## 后置
 
@@ -36,14 +37,14 @@ FastAPI 对外，LangGraph 编排。检索是工具，模型循环调用直到�
 |---|---|---|
 | 向量库 | Chroma → Qdrant（已有 Postgres 则 pgvector）；全文可换 OpenSearch。融合仍是 RRF | chunk 上万，或要 metadata 过滤 |
 | 解析 | LlamaIndex / 版面模型 | 双栏无沟、复杂版式、长乱码文本层，启发式开始砸人 |
-| 会话 / 元数据 | Postgres | 要落库的文档清单或对话历史 |
+| 会话 | Postgres 检查点表 | 对话要跨进程保留 |
 | 鉴权 | FastAPI 依赖；过滤放在候选参与排序之前 | 第二个用户 |
 | 精排 | Qwen3-Reranker-4B，或少量候选做 LLM 证据核验 | 同一标注集上 BGE 与 Qwen3-0.6B 仍排错复杂问句 |
 | 评测 | 固定库、查询、切片和生成模型，比召回、排序、证据覆盖、答案对错、P95 和费用。做法见 [评测.md](评测.md) | 要说明精排比「只向量」多对了多少 |
 
 ## 请求路径
 
-`POST /ingest` 版面解析 + 结构切分 + embedding 写入 `data/kb.sqlite`。同名再传：哈希相同则跳过，否则只嵌新切片并整份换掉旧版。`DELETE /documents/{source}` 删文档及切片。旧切片要重新上传才会带上表格和标题路径。
+`POST /ingest` 版面解析 + 结构切分 + embedding 写入 PostgreSQL（`DATABASE_URL`）。同名再传：哈希相同则跳过，否则只嵌新切片并整份换掉旧版。`DELETE /documents/{source}` 删文档及切片。旧的 SQLite 文件不再读取，要重新上传。检索仍把切片拉回内存算余弦，切片上万再在这个库上加 pgvector。
 
 `POST /ask` → 可选 history → 改写或反问 → 反问则本轮结束；否则模型循环调 retrieve（第一次用改写问句，有上限）。retrieve 先按型号和错误码收窄，BM25 与余弦各取一批，RRF 融合；配置了精排模型才做交叉编码，同一来源封顶后交给生成。有检索证据才作答，否则不知道。
 

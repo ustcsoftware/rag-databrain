@@ -1,11 +1,10 @@
-import json
-import sqlite3
+import os
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import TypedDict
 
-ROOT = Path(__file__).resolve().parents[2]
-DB_PATH = ROOT / "data" / "kb.sqlite"
+import psycopg
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 
 class Chunk(TypedDict):
@@ -24,13 +23,13 @@ class Document(TypedDict):
     version: int
 
 
-def _connect() -> sqlite3.Connection:
-    # 每次短连接，避免 FastAPI 和以后的 Celery worker 抢同一连接。
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.executescript(
+def _connect() -> psycopg.Connection:
+    # 每次短连接，避免 FastAPI 和以后的 worker 抢同一连接。
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if not url:
+        raise RuntimeError("需要 DATABASE_URL")
+    conn = psycopg.connect(url, row_factory=dict_row)
+    conn.execute(
         """
         CREATE TABLE IF NOT EXISTS documents (
           source TEXT PRIMARY KEY,
@@ -38,53 +37,41 @@ def _connect() -> sqlite3.Connection:
           updated_at TEXT NOT NULL,
           content_hash TEXT NOT NULL DEFAULT '',
           version INTEGER NOT NULL DEFAULT 1
-        );
-        CREATE TABLE IF NOT EXISTS chunks (
-          id TEXT PRIMARY KEY,
-          source TEXT NOT NULL,
-          idx INTEGER NOT NULL,
-          text TEXT NOT NULL,
-          embedding TEXT NOT NULL,
-          FOREIGN KEY (source) REFERENCES documents(source) ON DELETE CASCADE
-        );
+        )
         """
     )
-    _ensure_columns(conn)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS chunks (
+          id TEXT PRIMARY KEY,
+          source TEXT NOT NULL REFERENCES documents(source) ON DELETE CASCADE,
+          idx INTEGER NOT NULL,
+          text TEXT NOT NULL,
+          embedding JSONB NOT NULL
+        )
+        """
+    )
+    # 建表要先提交。调用方失败回滚时，只丢掉这次写入，表还在。
+    conn.commit()
     return conn
 
 
 _chunks: list[Chunk] | None = None
 
 
-def _ensure_columns(conn: sqlite3.Connection) -> None:
-    # 旧库只有 source/n_chunks/updated_at，CREATE IF NOT EXISTS 不会加列。
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(documents)")}
-    if "content_hash" not in cols:
-        conn.execute("ALTER TABLE documents ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''")
-    if "version" not in cols:
-        conn.execute("ALTER TABLE documents ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
-
-
 def replace_document(source: str, chunks: list[dict], content_hash: str, version: int) -> int:
-    # 同名必须先删后插，否则旧切片会继续被检索到。
+    # 同名整份替换。删和写在同一事务里，失败则仍是上一版。
     conn = _connect()
     try:
-        conn.execute("DELETE FROM documents WHERE source = ?", (source,))
-
+        conn.execute("DELETE FROM documents WHERE source = %s", (source,))
         conn.execute(
-            "INSERT INTO documents (source, n_chunks, updated_at, content_hash, version) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO documents (source, n_chunks, updated_at, content_hash, version) VALUES (%s, %s, %s, %s, %s)",
             (source, len(chunks), datetime.now(timezone.utc).isoformat(), content_hash, version),
         )
         for i, c in enumerate(chunks):
             conn.execute(
-                "INSERT INTO chunks (id, source, idx, text, embedding) VALUES (?, ?, ?, ?, ?)",
-                (
-                    f"{source}:{i}",
-                    source,
-                    i,
-                    c["text"],
-                    json.dumps(c["embedding"], separators=(",", ":")),
-                ),
+                "INSERT INTO chunks (id, source, idx, text, embedding) VALUES (%s, %s, %s, %s, %s)",
+                (f"{source}:{i}", source, i, c["text"], Jsonb(c["embedding"])),
             )
         conn.commit()
         _invalidate()
@@ -96,7 +83,7 @@ def replace_document(source: str, chunks: list[dict], content_hash: str, version
 def delete_document(source: str) -> bool:
     conn = _connect()
     try:
-        cur = conn.execute("DELETE FROM documents WHERE source = ?", (source,))
+        cur = conn.execute("DELETE FROM documents WHERE source = %s", (source,))
         conn.commit()
         gone = cur.rowcount > 0
         if gone:
@@ -110,7 +97,7 @@ def load_chunks_for_source(source: str) -> list[Chunk]:
     conn = _connect()
     try:
         rows = conn.execute(
-            "SELECT id, source, idx, text, embedding FROM chunks WHERE source = ? ORDER BY idx",
+            "SELECT id, source, idx, text, embedding FROM chunks WHERE source = %s ORDER BY idx",
             (source,),
         ).fetchall()
         return [_row_chunk(r) for r in rows]
@@ -119,7 +106,7 @@ def load_chunks_for_source(source: str) -> list[Chunk]:
 
 
 def load_chunks() -> list[Chunk]:
-    # 检索要全表；过滤和向量库以后换实现，不在这里加 WHERE。
+    # ponytail: 全表拉回内存算余弦。切片上万再改 pgvector，不换库。
     global _chunks
     if _chunks is not None:
         return _chunks
@@ -134,13 +121,13 @@ def load_chunks() -> list[Chunk]:
         conn.close()
 
 
-def _row_chunk(r: sqlite3.Row) -> Chunk:
+def _row_chunk(r) -> Chunk:
     return {
         "id": r["id"],
         "source": r["source"],
         "idx": r["idx"],
         "text": r["text"],
-        "embedding": json.loads(r["embedding"]),
+        "embedding": r["embedding"],
     }
 
 
@@ -154,7 +141,7 @@ def get_document(source: str) -> Document | None:
     conn = _connect()
     try:
         r = conn.execute(
-            "SELECT source, n_chunks, updated_at, content_hash, version FROM documents WHERE source = ?",
+            "SELECT source, n_chunks, updated_at, content_hash, version FROM documents WHERE source = %s",
             (source,),
         ).fetchone()
         if r is None:
