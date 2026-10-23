@@ -1,6 +1,6 @@
 # 架构选型
 
-活文档。改栈只改这里，并同步 `d:\personal code\knowledge-docs\workflow\rag-databrain-架构选型.md`。面试题见 [选型面试题.md](选型面试题.md)。切分见 [切分问题.md](切分问题.md)。经典实践见 [面试经典实践.md](面试经典实践.md)。
+活文档。改栈只改这里，并同步 `d:\personal code\knowledge-docs\workflow\rag-databrain-架构选型.md`。面试题见 [选型面试题.md](选型面试题.md)。切分见 [切分问题.md](切分问题.md)。经典实践见 [面试经典实践.md](面试经典实践.md)。名词见 [技术名词.md](技术名词.md)。
 
 ## 一句话
 
