@@ -24,19 +24,20 @@ FastAPI 对外，LangGraph 编排。检索是工具，模型循环调用直到�
 | 2026-10-21 | 循环 | `retrieve` 当工具，模型决定再搜或作答；最后一轮禁止工具 | 直线检索→生成不是 Agent | LangGraph 条件边拆节点（和 stream 重复） |
 | 2026-10-22 | 消歧 | 检索前一次判断：改写后的问句去检索，或只反问一个缺口 | 真歧义时猜一个意思会答错；生成仍用原话 | 多查询、HyDE、缺槽位表 |
 | 2026-10-22 | 扫描件 | 文本层平均每页不足 40 字则渲染，RapidOCR | 图片页和扫描件没有可检索的字 | 本机 Tesseract（要另装中文语言包） |
+| 2026-10-23 | 解析 | 版面块 + 结构切分；PDF 用 pdfplumber，扫描件用 OCR 框 | 表格行列和标题路径不能在压成纯文本之后补 | LlamaIndex（版面启发式不够时） |
 
 ## 后置
 
 | 层 | 倾向 | 触发条件 |
 |---|---|---|
 | 向量库 | Chroma → Qdrant（已有 Postgres 则 pgvector） | chunk 上万，或要 metadata 过滤 |
-| 解析 | LlamaIndex | 双栏、表格、长乱码文本层开始砸人 |
+| 解析 | LlamaIndex / 版面模型 | 双栏无沟、复杂版式、长乱码文本层，启发式开始砸人 |
 | 会话 / 元数据 | Postgres | 要落库的文档清单或对话历史 |
 | 鉴权 | FastAPI 依赖 | 第二个用户 |
 
 ## 请求路径
 
-`POST /ingest` 切分 + embedding 写入 `data/kb.sqlite`。
+`POST /ingest` 版面解析 + 结构切分 + embedding 写入 `data/kb.sqlite`。旧切片要重新上传才会带上表格和标题路径。
 
 `POST /ask` → 可选 history → 改写或反问 → 反问则本轮结束；否则模型循环调 retrieve（第一次用改写问句，有上限）→ 最后一轮作答。
 

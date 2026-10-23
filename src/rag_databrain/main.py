@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 load_dotenv()
 
 from rag_databrain.graph import graph, stream_ask
-from rag_databrain.parse import read_file
+from rag_databrain.parse import parse_document
 from rag_databrain.store import ingest
 
 app = FastAPI(title="rag-databrain")
@@ -72,12 +72,12 @@ def ingest_file(file: UploadFile):
         raise HTTPException(400, "文件超过 10MB")
 
     try:
-        text = read_file(name, raw)
+        blocks = parse_document(name, raw)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
     try:
-        n = ingest(name, text)
+        n = ingest(name, blocks)
     except RuntimeError as e:
         raise HTTPException(503, str(e)) from e
 

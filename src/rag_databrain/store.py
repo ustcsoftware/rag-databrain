@@ -1,11 +1,11 @@
 from rag_databrain.embedder import embed_texts
-from rag_databrain.parse import chunk_text
+from rag_databrain.parse import chunk_blocks
 from rag_databrain.storage import load_chunks, replace_document
 
 
-def ingest(source: str, text: str) -> int:
+def ingest(source: str, blocks: list[dict]) -> int:
     # 流水线只串三层，解析/向量/落库都不在本函数里实现。
-    chunks = chunk_text(text)
+    chunks = chunk_blocks(blocks)
     if not chunks:
         return 0
 

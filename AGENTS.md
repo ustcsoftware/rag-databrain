@@ -17,5 +17,6 @@
 - Agent 循环在 `stream_ask`：模型调 `retrieve`，最后一轮禁止工具。不要退回「检索一次就生成」。相同 query 不重复搜。
 - 用户问题先消歧：能补成唯一问句就改写，第一次 `retrieve` 用这句，生成仍用原话；几种读法会搜到不同资料就只反问一个缺口，本轮不检索。消歧结果解析失败就走原来的循环。不要上多查询或 HyDE。
 - 换模型只改 `.env`，不要为中转再包 SDK。存储只经过 `store.py` / `storage.py`。
+- 解析先拆成段落/表格/图片块再切。表格保留行列，跨页先拼再切；不要把版面压成纯文本滑窗。
 
 活文档：`docs/architecture.md`。SSE 注意点：`d:\personal code\knowledge-docs\workflow\rag-databrain-流式输出SSE.md`。
