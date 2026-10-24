@@ -30,12 +30,14 @@ FastAPI 对外，LangGraph 编排。检索是工具，模型循环调用直到�
 | 2026-10-23 | 检索 | 型号和错误码硬约束，BM25 + 余弦，RRF，可选 Cross-Encoder，同源封顶 | 向量近邻会把另一型号、另一个错误码排到前面 | 只取向量前几条；现在不上 OpenSearch / pgvector |
 | 2026-10-23 | 会话 | 请求内复制 history，图不挂 checkpointer | 进程内会话表在多 worker 下会串话或丢话 | 全局对话列表；所有人共用一个 thread_id |
 | 2026-10-23 | 存储 | PostgreSQL `documents` + `chunks` | 向量索引和 Agent 的 JSON 状态都长在 Postgres 上；MySQL 的向量类型晚，检查点也没有现成实现 | MySQL；继续用 SQLite 文件 |
+| 2026-10-24 | 向量库 | 不用 Milvus。向量留在 Postgres，上万再加 pgvector | 和切片同一笔事务；现在全表余弦够用 | Milvus、Qdrant、Chroma |
 
 ## 后置
 
 | 层 | 倾向 | 触发条件 |
 |---|---|---|
-| 向量库 | Chroma → Qdrant（已有 Postgres 则 pgvector）；全文可换 OpenSearch。融合仍是 RRF | chunk 上万，或要 metadata 过滤 |
+| 向量索引 | 在这份 Postgres 上加 pgvector。全文可换 OpenSearch。融合仍是 RRF | 切片上万，或要在 SQL 里按条件过滤 |
+| Milvus | 独立向量服务。文档和向量拆成两笔提交，存储层要双写 | 单机 pgvector 的 HNSW 放不进这台库的内存，或向量查询把库打满。默认 `text-embedding-3-small` 是 1536 维，一条约 6KB；加上图，一百万条约十几 GB，32GB 内存的库还留在 Postgres。到千万级（向量加图过百 GB）再引入 |
 | 解析 | LlamaIndex / 版面模型 | 双栏无沟、复杂版式、长乱码文本层，启发式开始砸人 |
 | 会话 | Postgres 检查点表 | 对话要跨进程保留 |
 | 鉴权 | FastAPI 依赖；过滤放在候选参与排序之前 | 第二个用户 |
@@ -44,7 +46,7 @@ FastAPI 对外，LangGraph 编排。检索是工具，模型循环调用直到�
 
 ## 请求路径
 
-`POST /ingest` 版面解析 + 结构切分 + embedding 写入 PostgreSQL（`DATABASE_URL`）。同名再传：哈希相同则跳过，否则只嵌新切片并整份换掉旧版。`DELETE /documents/{source}` 删文档及切片。旧的 SQLite 文件不再读取，要重新上传。检索仍把切片拉回内存算余弦，切片上万再在这个库上加 pgvector。
+`POST /ingest` 版面解析 + 结构切分 + embedding 写入 PostgreSQL（`DATABASE_URL`）。同名再传：哈希相同则跳过，否则只嵌新切片并整份换掉旧版。`DELETE /documents/{source}` 删文档及切片。旧的 SQLite 文件不再读取，要重新上传。检索仍把切片拉回内存算余弦，切片上万再在这个库上加 pgvector。不用 Milvus；引入条件见上面后置表。
 
 `POST /ask` → 可选 history → 改写或反问 → 反问则本轮结束；否则模型循环调 retrieve（第一次用改写问句，有上限）。retrieve 先按型号和错误码收窄，BM25 与余弦各取一批，RRF 融合；配置了精排模型才做交叉编码，同一来源封顶后交给生成。有检索证据才作答，否则不知道。
 
