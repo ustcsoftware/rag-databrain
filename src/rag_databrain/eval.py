@@ -9,6 +9,9 @@
 一行一道题：
 {"question":"A型变频器 E07 怎么处理","kind":"model","relevant_ids":["手册.pdf:2"],"facts":["先断电"]}
 
+公开集如果只标到文档、没有切片 id，改用 relevant_sources，值要和切片的 source 一致。
+这时召回按文档算：该文档第一块切片落在前 K 里才算命中。
+
 kind：fact 事实，model 精确型号，cross 跨段落，ambiguous 歧义，unanswerable 无答案。
 歧义和无答案不进召回分母。relevant_ids 是 文档名:序号，序号从 0，和入库切分顺序一致。
 facts 是人能核对的短句，用来算 Evidence Recall。
@@ -157,18 +160,37 @@ def _print_corpus(chunks: list[dict]) -> None:
     print()
 
 
-def _resolve(row: dict, chunks: list[dict]) -> tuple[set[str], list[str]]:
+def _as_labels(ranked: list[dict], by_source: bool) -> list[str]:
+    # 文档级只认每个文档第一次出现的切片。后面的重复块不再算一条相关。
+    if not by_source:
+        return [d["id"] for d in ranked]
+    seen = set()
+    labels = []
+    for doc in ranked:
+        src = doc["source"]
+        if src in seen:
+            labels.append("")
+            continue
+        seen.add(src)
+        labels.append(src)
+    return labels
+
+
+def _resolve(row: dict, chunks: list[dict]) -> tuple[set[str], list[str], bool]:
     # 库里已经没有的 id 仍留在分母里，否则召回会被算高。
-    known = {c["id"] for c in chunks}
+    by_source = bool(row.get("relevant_sources"))
+    known = {c["source"] for c in chunks} if by_source else {c["id"] for c in chunks}
+    keys = row.get("relevant_sources") if by_source else row.get("relevant_ids")
     found = set()
     notes = []
-    for doc_id in row.get("relevant_ids") or []:
+    for doc_id in keys or []:
         if not doc_id:
             continue
         found.add(doc_id)
         if doc_id not in known:
-            notes.append(f"id 不在库里: {doc_id}")
-    return found, notes
+            label = "文档不在库里" if by_source else "id 不在库里"
+            notes.append(f"{label}: {doc_id}")
+    return found, notes, by_source
 
 
 def _score(questions: list[dict], chunks: list[dict]) -> None:
@@ -181,6 +203,7 @@ def _score(questions: list[dict], chunks: list[dict]) -> None:
     latencies: list[float] = []
     skip = {"ambiguous": 0, "unanswerable": 0, "nolabel": 0}
     notes: list[str] = []
+    doc_level = False
 
     for n, row in enumerate(questions, 1):
         kind = (row.get("kind") or "fact").strip()
@@ -188,7 +211,8 @@ def _score(questions: list[dict], chunks: list[dict]) -> None:
             skip[kind] = skip.get(kind, 0) + 1
             continue
 
-        relevant, row_notes = _resolve(row, chunks)
+        relevant, row_notes, by_source = _resolve(row, chunks)
+        doc_level = doc_level or by_source
         notes.extend(f"第 {n} 题 {note}" for note in row_notes)
         facts = [f for f in (row.get("facts") or []) if f]
         if not relevant:
@@ -208,12 +232,12 @@ def _score(questions: list[dict], chunks: list[dict]) -> None:
         }
         for mode in modes:
             ranked = lists[mode]
-            ids = [d["id"] for d in ranked]
+            labels = _as_labels(ranked, by_source)
             # 精排的召回看融合候选。没进这 20 条，精排没有机会。
-            recall_ids = [d["id"] for d in orders["hybrid"]] if mode == "rerank" else ids
-            rec = recall_at(recall_ids, relevant, _RECALL_K)
-            mrr = mrr_at(ids, relevant, _MRR_K)
-            nd = ndcg_at(ids, relevant, _NDCG_K)
+            recall_labels = _as_labels(orders["hybrid"], by_source) if mode == "rerank" else labels
+            rec = recall_at(recall_labels, relevant, _RECALL_K)
+            mrr = mrr_at(labels, relevant, _MRR_K)
+            nd = ndcg_at(labels, relevant, _NDCG_K)
             shown = _diversify(ranked, evidence_k, per_source)
             ev = evidence_recall([d["text"] for d in shown], facts)
             buckets[mode]["recall"].append(rec)
@@ -235,6 +259,8 @@ def _score(questions: list[dict], chunks: list[dict]) -> None:
         f"没有相关切片 {skip['nolabel']}。"
     )
     print()
+    if doc_level:
+        print("Recall、MRR、nDCG 按文档算：标准文档的第一块切片落在前 K 里算命中。")
     ev_head = f"Evidence@{evidence_k}"
     print(f"{'模式':<10}{'Recall@20':>12}{'MRR@5':>10}{'nDCG@5':>10}{ev_head:>14}")
     for mode in modes:
