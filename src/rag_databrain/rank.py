@@ -19,26 +19,7 @@ def retrieve_ranked(question: str, chunks: list[dict], qvec: list[float], k: int
     if not chunks or k <= 0:
         return []
 
-    pool = _constrain(question, chunks)
-    bm25_hits = _bm25_top(question, pool, _env_int("BM25_K", 30))
-    dense_hits = _dense_top(qvec, pool, _env_int("DENSE_K", 30))
-    bm25_rank = {d["id"]: i for i, d in enumerate(bm25_hits, 1)}
-    dense_rank = {d["id"]: i for i, d in enumerate(dense_hits, 1)}
-    fused = _rrf([bm25_hits, dense_hits])[: _env_int("RERANK_CANDIDATES", 30)]
-    for i, doc in enumerate(fused, 1):
-        doc["bm25_rank"] = bm25_rank.get(doc["id"])
-        doc["dense_rank"] = dense_rank.get(doc["id"])
-        doc["rrf_rank"] = i
-
-    scores = _score(question, [_clip(d["text"]) for d in fused])
-    if scores is None:
-        for doc in fused:
-            doc["rerank_score"] = None
-    else:
-        for doc, score in zip(fused, scores):
-            doc["rerank_score"] = float(score)
-        fused.sort(key=lambda d: d["rerank_score"], reverse=True)
-
+    fused = rank_orders(question, chunks, qvec)["reranked"]
     picked = _diversify(fused, k, _env_int("RERANK_PER_SOURCE", 3))
     for doc in fused:
         doc["final_rank"] = None
@@ -50,6 +31,33 @@ def retrieve_ranked(question: str, chunks: list[dict], qvec: list[float], k: int
     elif fused:
         log.debug("retrieve pool %s", [_trace(d) for d in fused])
     return picked
+
+
+def rank_orders(question: str, chunks: list[dict], qvec: list[float]) -> dict[str, list[dict]]:
+    # 评测要四条名单。hybrid 在精排排序之前拍一份，避免和 reranked 变成同一顺序。
+    if not chunks:
+        empty: list[dict] = []
+        return {"dense": empty, "bm25": empty, "hybrid": empty, "reranked": empty}
+
+    pool = _constrain(question, chunks)
+    bm25_hits = _bm25_top(question, pool, _env_int("BM25_K", 30))
+    dense_hits = _dense_top(qvec, pool, _env_int("DENSE_K", 30))
+    bm25_rank = {d["id"]: i for i, d in enumerate(bm25_hits, 1)}
+    dense_rank = {d["id"]: i for i, d in enumerate(dense_hits, 1)}
+    fused = _rrf([bm25_hits, dense_hits])[: _env_int("RERANK_CANDIDATES", 30)]
+    for i, doc in enumerate(fused, 1):
+        doc["bm25_rank"] = bm25_rank.get(doc["id"])
+        doc["dense_rank"] = dense_rank.get(doc["id"])
+        doc["rrf_rank"] = i
+        doc["rerank_score"] = None
+
+    hybrid = list(fused)
+    scores = _score(question, [_clip(d["text"]) for d in fused])
+    if scores is not None:
+        for doc, score in zip(fused, scores):
+            doc["rerank_score"] = float(score)
+        fused.sort(key=lambda d: d["rerank_score"], reverse=True)
+    return {"dense": dense_hits, "bm25": bm25_hits, "hybrid": hybrid, "reranked": fused}
 
 
 def _trace(doc: dict) -> dict:
